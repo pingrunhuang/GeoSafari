@@ -14,10 +14,9 @@ object TestGeoHash extends App {
   val PRECISION = 1
   val geoFactory = new GeometryFactory()
 
-//  val GRIDS_PATH = "PATH_OF_YOUR_GRIDS_DATA"
-//  val POI_PATH = "POINTS_OF_YOUR_POI_DATA"
-  val POI_PATH = Constants.SHANGHAI_POI
-  val GRIDS_PATH = Constants.GRID_PORTRAIT
+  val GRIDS_PATH = "PATH_OF_YOUR_GRIDS_DATA"
+  val POI_PATH = "POINTS_OF_YOUR_POI_DATA"
+
 
   val point = geoFactory.createPoint(new Coordinate(3.4, 5.6))
   println(point)
