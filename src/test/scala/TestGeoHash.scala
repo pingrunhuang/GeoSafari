@@ -1,24 +1,18 @@
 import com.vividsolutions.jts.geom.{Coordinate, GeometryFactory}
-import org.apache.spark.sql.types.{StringType, StructField, StructType}
-import org.apache.spark.sql.{Row, SparkSession}
-import org.locationtech.geomesa.spark.jts._
 import org.locationtech.geomesa.spark.jts.util.GeoHashUtils
+//import org.locationtech.geomesa.spark.jts.util.GeoHashUtils
 
 /**
-  * @ author Frank Huang (runping@shanshu.ai)
+  * @ author Frank
   * @ date 2018/12/06 
   */
 object TestGeoHash extends App {
 
 //  The precision is how large the area you want your grid to match the poi
-  val PRECISION = 1
+  val PRECISION = 12
   val geoFactory = new GeometryFactory()
 
-  val GRIDS_PATH = "PATH_OF_YOUR_GRIDS_DATA"
-  val POI_PATH = "POINTS_OF_YOUR_POI_DATA"
-
-
-  val point = geoFactory.createPoint(new Coordinate(3.4, 5.6))
+  val point = geoFactory.createPoint(new Coordinate(121.82914948336449,31.48883550703687))
   println(point)
   val hashed_grid = GeoHashUtils.encode(point, PRECISION)
   println(hashed_grid)
@@ -30,76 +24,66 @@ object TestGeoHash extends App {
     println("It does not work")
   }
 
-  val spark = SparkSession.builder().appName("master").master("local[4]").getOrCreate().withJTS
-
-  val grid_columns = Seq("left_down", "left_down", "right_down", "right_up", "left_up", "center", "address")
-  val poi_columns = Seq("locationx", "locationy", "addr")
-
-  val grid_portrait_df = spark.read.option("sep", "|").option("header","true").csv(GRIDS_PATH).select(
-    "left_down", "left_down", "right_down", "right_up", "left_up", "center", "address"
-  )
-  val poi_df = spark.read.option("header", "true").csv(POI_PATH).select(
-    "locationx", "locationy", "addr"
-  )
-
-  val poi1 = poi_df.withColumn("point", st_makePoint(poi_df("locationx"), poi_df("locationy")))
-  val poi =  poi1.withColumn("point_geohash", st_geoHash(poi1("point"), PRECISION))
-  poi.cache()
-  poi.show(5)
-//  val grid_portrait_rdd = grid_portrait_df.withColumn("grid_geohash", st_geoHash(st_pointFromText(grid_portrait_df("center")), PRECISION)).rdd
-  val grid_portrait_rdd = grid_portrait_df.rdd.map(row=>{
-    val centerx = row.getAs[String]("center").split(",")(0).toDouble
-    val centery = row.getAs[String]("center").split(",")(1).toDouble
-    val center = geoFactory.createPoint(new Coordinate(centerx, centery))
-    val geohash = GeoHashUtils.encode(center, PRECISION)
-    (geohash, row)
-  })
-  grid_portrait_rdd.take(5)
-
-  val grids_dict = grid_portrait_rdd.map(row=>(row._1, row._2)).groupByKey() .collectAsMap()
-  val grids_dict_bc = spark.sparkContext.broadcast[scala.collection.Map[String, Iterable[Row]]](grids_dict)
-
-  val result = poi.rdd.map(row=>{
-    val hash_value = row.getAs[String]("point_geohash")
-    val poi_x = row.getAs[String]("locationx").toDouble
-    val poi_y = row.getAs[String]("locationy").toDouble
-    val poi_point = geoFactory.createPoint(new Coordinate(poi_x, poi_y))
-    val match_grids = grids_dict_bc.value.get(hash_value)
-
-    if (match_grids.isDefined){
-      val matched_grid = match_grids.get.map(g=>{
-        val left_up = new Coordinate(g.getAs[String]("left_up").split(",")(0).toDouble, g.getAs[String]("left_up").split(",")(1).toDouble)
-        val left_down = new Coordinate(g.getAs[String]("left_down").split(",")(0).toDouble, g.getAs[String]("left_down").split(",")(1).toDouble)
-        val right_up = new Coordinate(g.getAs[String]("right_up").split(",")(0).toDouble, g.getAs[String]("right_up").split(",")(1).toDouble)
-        val right_down = new Coordinate(g.getAs[String]("right_down").split(",")(0).toDouble, g.getAs[String]("right_down").split(",")(1).toDouble)
-        val polygon = geoFactory.createPolygon(Array(left_up, left_down, right_down, right_up, left_up))
-        (polygon, g.getAs[String]("center"), g.getAs[String]("address"))
-      }).filter(bar=>bar._1.contains(poi_point)).head
-
-      (row, true, matched_grid._1.toString, matched_grid._2, matched_grid._3)
-    }else{
-      (row, false, "", "", "")
-    }
-  }).filter(row=>row._2).map(row=>{
-    Row(row._1.getAs[String]("point_geohash"), row._1.getAs[String]("addr"), row._1.getAs[String]("point"), row._3, row._4, row._5)
-  })
+  val point1 = geoFactory.createPoint(new Coordinate(121.367369,31.103366))
+  val left_down = new Coordinate(121.366733,31.103059)
+  val right_down = new Coordinate(121.369435,31.103063)
+  val right_up = new Coordinate(121.369436,31.105381)
+  val left_up = new Coordinate(121.366733,31.105378)
+  val grid1 = geoFactory.createPolygon(Array(
+    left_down,
+    right_down,
+    right_up,
+    left_up,
+    left_down
+  ))
+  val center = geoFactory.createPoint(new Coordinate(121.36808448347708,31.10422000705052))
+  println(grid1)
+  println(point2)
+  println(GeoHashUtils.encode(center, PRECISION))
+  println(GeoHashUtils.encode(grid1, PRECISION))
 
 
-  if (result.count()==0){
-    println("Points are not in any grids!!!!!!")
+  if (grid1.contains(point1)){
+    println(s"$grid1 contains $point1")
   }else{
-    val result_schema = StructType(
-      Array(
-        StructField("poi_geohash", StringType),
-        StructField("poi_address", StringType),
-        StructField("poi_location", StringType),
-        StructField("grid_location", StringType),
-        StructField("grid_center_location", StringType),
-        StructField("grid_address", StringType)
-      )
-    )
-    val result_df = spark.createDataFrame(result, result_schema).repartition(1)
-    result_df.write.csv("match_result.csv")
+    println(s"$grid1 does not contain $point1")
   }
+
+  val point2 = geoFactory.createPoint(new Coordinate(121.527017,31.256097))
+
+  val grid2 = geoFactory.createPolygon(Array(
+    new Coordinate(121.825066,30.931237),
+    new Coordinate(121.827758,30.931231),
+    new Coordinate(121.827758,30.93355),
+    new Coordinate(121.825066,30.933555),
+    new Coordinate(121.825066,30.931237)
+  ))
+
+  if (grid2.contains(point2)){
+    println(s"$grid2 contains $point2")
+  }else{
+    println(s"$grid2 does not contain $point2")
+  }
+
+  val point3 = geoFactory.createPoint(new Coordinate(121.392350,31.240912))
+
+
+  val grid3 = geoFactory.createPolygon(Array(
+    new Coordinate(121.39106,31.239887),
+    new Coordinate(121.39376,31.239889),
+    new Coordinate(121.39376,31.242207),
+    new Coordinate(121.39106,31.242206),
+    new Coordinate(121.39106,31.239887)
+  ))
+
+  if (grid3.contains(point3)){
+    println(s"$grid3 contains $point3")
+  }else{
+    println(s"$grid3 does not contain $point3")
+  }
+
+
+
+
 
 }
